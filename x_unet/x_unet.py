@@ -86,13 +86,14 @@ class Block(nn.Module):
         dim_out,
         groups = 8,
         weight_standardize = False,
-        frame_kernel_size = 1
+        frame_kernel_size = 1,
+        kernel_size = (3, 3)
     ):
         super().__init__()
         kernel_conv_kwargs = partial(kernel_and_same_pad, frame_kernel_size)
         conv = nn.Conv3d if not weight_standardize else WeightStandardizedConv3d
 
-        self.proj = conv(dim, dim_out, **kernel_conv_kwargs(3, 3))
+        self.proj = conv(dim, dim_out, **kernel_conv_kwargs(*kernel_size))
         self.norm = nn.GroupNorm(groups, dim_out)
         self.act = nn.SiLU()
 
@@ -118,7 +119,7 @@ class ResnetBlock(nn.Module):
         if nested_unet_depth > 0:
             self.block2 = NestedResidualUnet(dim_out, depth = nested_unet_depth, M = nested_unet_dim, frame_kernel_size = frame_kernel_size, weight_standardize = weight_standardize, add_residual = True)
         else:
-            self.block2 = Block(dim_out, dim_out, groups = groups, weight_standardize = weight_standardize, frame_kernel_size = frame_kernel_size)
+            self.block2 = Block(dim_out, dim_out, groups = groups, weight_standardize = weight_standardize, frame_kernel_size = frame_kernel_size, kernel_size=(1, 1))
 
         self.res_conv = nn.Conv3d(dim, dim_out, 1) if dim != dim_out else nn.Identity()
 
@@ -286,6 +287,7 @@ class XUnet(nn.Module):
         init_dim = None,
         out_dim = None,
         frame_kernel_size = 1,
+        init_kernel_size = (7, 7),
         dim_mults = (1, 2, 4, 8),
         num_blocks_per_stage = (2, 2, 2, 2),
         num_self_attn_per_stage = (0, 0, 0, 1),
@@ -308,7 +310,7 @@ class XUnet(nn.Module):
         self.channels = channels
 
         init_dim = default(init_dim, dim)
-        self.init_conv = nn.Conv3d(channels, init_dim, **kernel_and_same_pad(frame_kernel_size, 7, 7))
+        self.init_conv = nn.Conv3d(channels, init_dim, **kernel_and_same_pad(frame_kernel_size, *init_kernel_size))
 
         dims = [init_dim, *map(lambda m: dim * m, dim_mults)]
         in_out = list(zip(dims[:-1], dims[1:]))
