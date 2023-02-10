@@ -380,7 +380,8 @@ class XUnet(nn.Module):
         self.mid_attn = Attention(mid_dim)
         self.mid_after = blocks(mid_dim, mid_dim, nested_unet_depth = mid_nested_unet_depth, nested_unet_dim = nested_unet_dim)
 
-        self.mid_upsample = Upsample(mid_dim, dims[-2])
+        # self.mid_upsample = Upsample(mid_dim, dims[-2])
+        self.mid_upsample = PixelShuffleUpsample(mid_dim, dims[-2])
 
         # ups
 
@@ -391,7 +392,8 @@ class XUnet(nn.Module):
                 blocks(dim_out + skip_dims.pop(), dim_out, nested_unet_depth = nested_unet_depth, nested_unet_dim = nested_unet_dim),
                 nn.ModuleList([blocks(dim_out, dim_out, nested_unet_depth = nested_unet_depth, nested_unet_dim = nested_unet_dim) for _ in range(num_blocks - 1)]),
                 nn.ModuleList([TransformerBlock(dim_out, depth = self_attn_blocks, **attn_kwargs) for _ in range(self_attn_blocks)]),
-                Upsample(dim_out, dim_in) if not is_last else nn.Identity()
+                # Upsample(dim_out, dim_in) if not is_last else nn.Identity(),
+                PixelShuffleUpsample(dim_out, dim_in) if not is_last else nn.Identity(),
             ]))
 
 
