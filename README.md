@@ -18,6 +18,7 @@ from x_unet import XUnet
 
 unet = XUnet(
     dim = 64,
+    channels = 3,
     dim_mults = (1, 2, 4, 8),
     nested_unet_depths = (7, 4, 2, 1),     # nested unet depths, from unet-squared paper
     consolidate_upsample_fmaps = True,     # whether to consolidate outputs from all upsample blocks, used in unet-squared paper
@@ -36,6 +37,7 @@ from x_unet import XUnet
 unet = XUnet(
     dim = 64,
     frame_kernel_size = 3,                 # set this to greater than 1
+    channels = 3,
     dim_mults = (1, 2, 4, 8),
     nested_unet_depths = (5, 4, 2, 1),     # nested unet depths, from unet-squared paper
     consolidate_upsample_fmaps = True,     # whether to consolidate outputs from all upsample blocks, used in unet-squared paper
@@ -109,5 +111,13 @@ out = unet(video) # (1, 3, 10, 128, 128)
     journal = {ArXiv},
     year    = {2022},
     volume  = {abs/2208.03641}
+}
+```
+
+```bibtex
+@inproceedings{Woo2023ConvNeXtVC,
+    title   = {ConvNeXt V2: Co-designing and Scaling ConvNets with Masked Autoencoders},
+    author  = {Sanghyun Woo and Shoubhik Debnath and Ronghang Hu and Xinlei Chen and Zhuang Liu and In-So Kweon and Saining Xie},
+    year    = {2023}
 }
 ```

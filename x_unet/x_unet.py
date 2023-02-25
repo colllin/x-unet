@@ -128,8 +128,21 @@ class ResnetBlock(nn.Module):
         h = self.block2(h)
         return h + self.res_conv(x)
 
-# conv next
-# https://arxiv.org/abs/2201.03545
+# convnext 2
+
+class GRN(nn.Module):
+    """ global response normalization, proposed in updated convnext paper """
+
+    def __init__(self, dim, eps = 1e-5):
+        super().__init__()
+        self.eps = eps
+        self.gamma = nn.Parameter(torch.zeros(dim, 1, 1, 1))
+        self.bias = nn.Parameter(torch.zeros(dim, 1, 1, 1))
+
+    def forward(self, x):
+        spatial_l2_norm = x.norm(p = 2, dim = (2, 3, 4), keepdim = True)
+        feat_norm = spatial_l2_norm / spatial_l2_norm.mean(dim = -1, keepdim = True).clamp(min = self.eps)
+        return x * feat_norm * self.gamma + self.bias + x
 
 class ConvNextBlock(nn.Module):
     def __init__(
@@ -147,11 +160,14 @@ class ConvNextBlock(nn.Module):
 
         self.ds_conv = nn.Conv3d(dim, dim, **kernel_conv_kwargs(7, 7), groups = dim)
 
+        inner_dim = dim_out * mult
+
         self.net = nn.Sequential(
             LayerNorm(dim),
-            nn.Conv3d(dim, dim_out * mult, **kernel_conv_kwargs(1, 1)),
+            nn.Conv3d(dim, inner_dim, **kernel_conv_kwargs(3, 3), groups = dim_out),
             nn.GELU(),
-            nn.Conv3d(dim_out * mult, dim_out, **kernel_conv_kwargs(1, 1))
+            GRN(inner_dim),
+            nn.Conv3d(inner_dim, dim_out, **kernel_conv_kwargs(3, 3), groups = dim_out)
         )
 
         self.nested_unet = NestedResidualUnet(dim_out, depth = nested_unet_depth, M = nested_unet_dim, add_residual = True) if nested_unet_depth > 0 else nn.Identity()
@@ -251,11 +267,11 @@ class FeatureMapConsolidator(nn.Module):
 
         self.final_dim_out = dim + (sum(dim_outs) if len(dim_outs) > 0 else 0)
 
-    def resize_fmaps(self, fmaps, target_size):
-        return [F.interpolate(fmap, (fmap.shape[-3], target_size, target_size)) for fmap in fmaps]
+    def resize_fmaps(self, fmaps, height, width):
+        return [F.interpolate(fmap, (fmap.shape[-3], height, width)) for fmap in fmaps]
 
     def forward(self, x, fmaps = None):
-        target_size = x.shape[-1]
+        target_height, target_width = x.shape[-2:]
 
         fmaps = default(fmaps, tuple())
 
@@ -263,14 +279,14 @@ class FeatureMapConsolidator(nn.Module):
             return x
 
         if self.resize_fmap_before:
-            fmaps = self.resize_fmaps(fmaps, target_size)
+            fmaps = self.resize_fmaps(fmaps, target_height, target_width)
 
         outs = []
         for fmap, conv in zip(fmaps, self.fmap_convs):
             outs.append(conv(fmap))
 
         if self.resize_fmap_before:
-            outs = self.resize_fmaps(outs, target_size)
+            outs = self.resize_fmaps(outs, target_height, target_width)
 
         return torch.cat((x, *outs), dim = 1)
 
@@ -587,9 +603,9 @@ class NestedResidualUnet(nn.Module):
 
         layers = len(self.ups)
 
-        assert h == w, 'only works with square images'
-        assert divisible_by(h, 2 ** len(self.ups)), f'dimension {h} must be divisible by {2 ** layers} ({layers} layers in nested unet)'
-        assert (h % (2 ** self.depth)) == 0, 'the unet has too much depth for the image being passed in'
+        for dim_name, size in (('height', h), ('width', w)):
+            assert divisible_by(size, 2 ** layers), f'{dim_name} dimension {size} must be divisible by {2 ** layers} ({layers} layers in nested unet)'
+            assert (size % (2 ** self.depth)) == 0, f'the unet has too much depth for the image {dim_name} ({size}) being passed in'
 
         # hiddens
 
