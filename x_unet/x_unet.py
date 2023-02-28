@@ -340,7 +340,6 @@ class XUnet(nn.Module):
             heads = attn_heads,
             dim_head = attn_dim_head
         )
-        self.init_attn = TransformerBlock(dim_in, depth = num_init_attn, **attn_kwargs) if num_init_attn > 0 else nn.Identity()
 
         # conv kwargs
         
@@ -348,11 +347,13 @@ class XUnet(nn.Module):
         self.init_conv = nn.Conv3d(channels, init_dim, **kernel_and_same_pad(frame_kernel_size, *init_kernel_size))
         
         if init_attn_before_conv:
+            self.init_attn = TransformerBlock(channels, depth = num_init_attn, **attn_kwargs) if num_init_attn > 0 else nn.Identity()
             self.init_block = nn.ModuleList([
                 self.init_attn,
                 self.init_conv,
             ])
         else:
+            self.init_attn = TransformerBlock(init_dim, depth = num_init_attn, **attn_kwargs) if num_init_attn > 0 else nn.Identity()
             self.init_block = nn.ModuleList([
                 self.init_conv,
                 self.init_attn,
