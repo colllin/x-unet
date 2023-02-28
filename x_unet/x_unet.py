@@ -108,18 +108,21 @@ class ResnetBlock(nn.Module):
         dim,
         dim_out,
         groups = 8,
+        kernel_sizes = (3, 1),
         frame_kernel_size = 1,
         nested_unet_depth = 0,
         nested_unet_dim = 32,
         weight_standardize = False
     ):
         super().__init__()
-        self.block1 = Block(dim, dim_out, groups = groups, weight_standardize = weight_standardize, frame_kernel_size = frame_kernel_size)
+        if isinstance(kernel_sizes, int):
+            kernel_sizes = (kernel_sizes, kernel_sizes)
+        self.block1 = Block(dim, dim_out, groups = groups, weight_standardize = weight_standardize, frame_kernel_size = frame_kernel_size, kernel_size = kernel_sizes[0])
 
         if nested_unet_depth > 0:
             self.block2 = NestedResidualUnet(dim_out, depth = nested_unet_depth, M = nested_unet_dim, frame_kernel_size = frame_kernel_size, weight_standardize = weight_standardize, add_residual = True)
         else:
-            self.block2 = Block(dim_out, dim_out, groups = groups, weight_standardize = weight_standardize, frame_kernel_size = frame_kernel_size, kernel_size=(1, 1))
+            self.block2 = Block(dim_out, dim_out, groups = groups, weight_standardize = weight_standardize, frame_kernel_size = frame_kernel_size, kernel_size = kernel_sizes[1])
 
         self.res_conv = nn.Conv3d(dim, dim_out, 1) if dim != dim_out else nn.Identity()
 
@@ -304,12 +307,14 @@ class XUnet(nn.Module):
         out_dim = None,
         frame_kernel_size = 1,
         init_kernel_size = (7, 7),
+        block_kernel_sizes = (3, 1),
         dim_mults = (1, 2, 4, 8),
         num_blocks_per_stage = (2, 2, 2, 2),
         num_self_attn_per_stage = (0, 0, 0, 1),
         nested_unet_depths = (0, 0, 0, 0),
         nested_unet_dim = 32,
         channels = 3,
+        pixelshuffle = False,
         use_convnext = False,
         resnet_groups = 8,
         consolidate_upsample_fmaps = True,
@@ -338,7 +343,12 @@ class XUnet(nn.Module):
 
         # resnet or convnext
 
-        blocks = partial(ConvNextBlock, frame_kernel_size = frame_kernel_size) if use_convnext else partial(ResnetBlock, groups = resnet_groups, weight_standardize = weight_standardize, frame_kernel_size = frame_kernel_size)
+        if use_convnext:
+            blocks = partial(ConvNextBlock, frame_kernel_size = frame_kernel_size)
+        else:
+            if isinstance(block_kernel_sizes, int):
+                block_kernel_sizes = (block_kernel_sizes, block_kernel_sizes)
+            blocks = partial(ResnetBlock, groups = resnet_groups, weight_standardize = weight_standardize, kernel_sizes = block_kernel_sizes, frame_kernel_size = frame_kernel_size)
 
         # whether to use nested unet, as in unet squared paper
 
@@ -396,20 +406,24 @@ class XUnet(nn.Module):
         self.mid_attn = Attention(mid_dim)
         self.mid_after = blocks(mid_dim, mid_dim, nested_unet_depth = mid_nested_unet_depth, nested_unet_dim = nested_unet_dim)
 
-        # self.mid_upsample = Upsample(mid_dim, dims[-2])
-        self.mid_upsample = PixelShuffleUpsample(mid_dim, dims[-2])
+        if pixelshuffle:
+            self.mid_upsample = PixelShuffleUpsample(mid_dim, dims[-2])
+        else:
+            self.mid_upsample = Upsample(mid_dim, dims[-2])
 
         # ups
 
         for ind, ((dim_in, dim_out), nested_unet_depth, num_blocks, self_attn_blocks) in enumerate(zip(*up_stage_parameters)):
             is_last = ind >= (num_resolutions - 1)
-
+            if pixelshuffle:
+                upsample = PixelShuffleUpsample(dim_out, dim_in) if not is_last else nn.Identity()
+            else:
+                upsample = Upsample(dim_out, dim_in) if not is_last else nn.Identity()
             self.ups.append(nn.ModuleList([
                 blocks(dim_out + skip_dims.pop(), dim_out, nested_unet_depth = nested_unet_depth, nested_unet_dim = nested_unet_dim),
                 nn.ModuleList([blocks(dim_out, dim_out, nested_unet_depth = nested_unet_depth, nested_unet_dim = nested_unet_dim) for _ in range(num_blocks - 1)]),
                 nn.ModuleList([TransformerBlock(dim_out, depth = self_attn_blocks, **attn_kwargs) for _ in range(self_attn_blocks)]),
-                # Upsample(dim_out, dim_in) if not is_last else nn.Identity(),
-                PixelShuffleUpsample(dim_out, dim_in) if not is_last else nn.Identity(),
+                upsample,
             ]))
 
 
