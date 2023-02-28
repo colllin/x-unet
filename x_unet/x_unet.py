@@ -348,13 +348,13 @@ class XUnet(nn.Module):
         
         if init_attn_before_conv:
             self.init_attn = TransformerBlock(channels, depth = num_init_attn, **attn_kwargs) if num_init_attn > 0 else nn.Identity()
-            self.init_block = nn.ModuleList([
+            self.init_blocks = nn.ModuleList([
                 self.init_attn,
                 self.init_conv,
             ])
         else:
             self.init_attn = TransformerBlock(init_dim, depth = num_init_attn, **attn_kwargs) if num_init_attn > 0 else nn.Identity()
-            self.init_block = nn.ModuleList([
+            self.init_blocks = nn.ModuleList([
                 self.init_conv,
                 self.init_attn,
             ])
@@ -481,7 +481,8 @@ class XUnet(nn.Module):
         # initial convolution
 
         # x = self.init_conv(x)
-        x = self.init_block(x)
+        for init_block in self.init_blocks:
+            x = init_block(x)
 
         # residual
 
