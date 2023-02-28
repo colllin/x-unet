@@ -93,6 +93,8 @@ class Block(nn.Module):
         kernel_conv_kwargs = partial(kernel_and_same_pad, frame_kernel_size)
         conv = nn.Conv3d if not weight_standardize else WeightStandardizedConv3d
 
+        if isinstance(kernel_size, int):
+            kernel_size = (kernel_size, kernel_size)
         self.proj = conv(dim, dim_out, **kernel_conv_kwargs(*kernel_size))
         self.norm = nn.GroupNorm(groups, dim_out)
         self.act = nn.SiLU()
