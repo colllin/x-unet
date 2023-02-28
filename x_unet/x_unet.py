@@ -312,6 +312,8 @@ class XUnet(nn.Module):
         block_kernel_sizes = (3, 1),
         dim_mults = (1, 2, 4, 8),
         num_blocks_per_stage = (2, 2, 2, 2),
+        num_init_attn = 0,
+        init_attn_before_conv = False,
         num_self_attn_per_stage = (0, 0, 0, 1),
         nested_unet_depths = (0, 0, 0, 0),
         nested_unet_dim = 32,
@@ -332,9 +334,30 @@ class XUnet(nn.Module):
         self.skip_scale = skip_scale
         self.channels = channels
 
+        # attn kwargs
+
+        attn_kwargs = dict(
+            heads = attn_heads,
+            dim_head = attn_dim_head
+        )
+        self.init_attn = TransformerBlock(dim_in, depth = num_init_attn, **attn_kwargs) if num_init_attn > 0 else nn.Identity()
+
+        # conv kwargs
+        
         init_dim = default(init_dim, dim)
         self.init_conv = nn.Conv3d(channels, init_dim, **kernel_and_same_pad(frame_kernel_size, *init_kernel_size))
-
+        
+        if init_attn_before_conv:
+            self.init_block = nn.ModuleList([
+                self.init_attn,
+                self.init_conv,
+            ])
+        else:
+            self.init_block = nn.ModuleList([
+                self.init_conv,
+                self.init_attn,
+            ])
+        
         dims = [init_dim, *map(lambda m: dim * m, dim_mults)]
         in_out = list(zip(dims[:-1], dims[1:]))
 
@@ -365,13 +388,6 @@ class XUnet(nn.Module):
 
         num_self_attn_per_stage = cast_tuple(num_self_attn_per_stage, num_resolutions)
         assert all([num_self_attn_blocks >= 0 for num_self_attn_blocks in num_self_attn_per_stage])
-
-        # attn kwargs
-
-        attn_kwargs = dict(
-            heads = attn_heads,
-            dim_head = attn_dim_head
-        )
 
         # modules for all layers
 
@@ -463,7 +479,8 @@ class XUnet(nn.Module):
 
         # initial convolution
 
-        x = self.init_conv(x)
+        # x = self.init_conv(x)
+        x = self.init_block(x)
 
         # residual
 
